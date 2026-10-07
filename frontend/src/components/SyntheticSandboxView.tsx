@@ -290,7 +290,7 @@ export const SyntheticSandboxView: React.FC<SyntheticSandboxViewProps> = ({
 
             {/* Dropdown Menu of Synthetic Scenarios */}
             {showChaosMenu && (
-              <div className="absolute right-0 mt-1.5 w-80 bg-[#11131C] border border-[#1C1F2B] shadow-2xl z-50 p-2 space-y-1 font-sans animate-in fade-in zoom-in-95 duration-150">
+              <div className="absolute left-0 mt-1.5 w-80 bg-[#11131C] border border-[#1C1F2B] shadow-2xl z-50 p-2 space-y-1 font-sans animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-2 py-1.5 border-b border-[#1C1F2B] flex items-center justify-between">
                   <span className="text-[10px] font-mono font-bold text-purple-300 uppercase tracking-wider">
                     Controlled Failure Injection
