@@ -1,7 +1,7 @@
 import json
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -16,7 +16,15 @@ router = APIRouter(prefix="/approvals", tags=["Approvals"])
 @router.get("/pending", response_model=List[Dict[str, Any]])
 def list_pending_approvals(db: Session = Depends(get_db)):
     """Returns all high-risk remediation actions currently awaiting human authorization."""
-    actions = db.query(DBAction).filter(DBAction.approval_status == ApprovalStatus.PENDING.value).all()
+    actions = (
+        db.query(DBAction)
+        .join(DBIncident, DBAction.incident_id == DBIncident.id)
+        .filter(
+            DBAction.approval_status == ApprovalStatus.PENDING.value,
+            DBIncident.status == IncidentStatus.AWAITING_APPROVAL.value
+        )
+        .all()
+    )
     results = []
     for a in actions:
         params = {}
@@ -53,7 +61,7 @@ async def submit_approval_decision(request: ApprovalDecisionRequest, db: Session
         raise HTTPException(status_code=404, detail="Associated incident not found")
 
     decision_upper = request.decision.upper()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # 1. Record Audit Event
     audit_id = str(uuid.uuid4())

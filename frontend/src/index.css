@@ -3,35 +3,78 @@
 @tailwind utilities;
 
 @layer base {
+  @font-face {
+    font-family: 'NationalWeb';
+    src: local('NationalWeb'), local('National-Bold'), local('National-Regular'),
+         local('-apple-system'), local('BlinkMacSystemFont'), local('Segoe UI');
+    font-weight: 400 900;
+    font-display: swap;
+  }
+
+  * {
+    border-radius: 0px !important;
+  }
+
   body {
-    @apply bg-[#0B0F19] text-slate-100 min-h-screen overflow-x-hidden;
+    @apply bg-[#0B0C10] text-slate-800 min-h-screen overflow-x-hidden antialiased;
+    font-family: 'Noto Sans', sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-header {
+    font-family: 'NationalWeb', 'Noto Sans', sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  button, input, select, textarea, [role="button"] {
+    border-radius: 0px !important;
   }
 }
 
-/* Custom scrollbars */
+/* Datadog Flat Square Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #111827;
+  background: #F1F3F7;
 }
 ::-webkit-scrollbar-thumb {
-  background: #374151;
-  border-radius: 4px;
+  background: #CBD5E1;
+  border-radius: 0px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4B5563;
+  background: #94A3B8;
 }
 
-.glow-box {
-  box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.15);
+/* Datadog Solid Card Utility */
+.dd-card {
+  background: #161823;
+  border: 1px solid #262A3D;
+  border-radius: 0px;
 }
 
-.glow-red {
-  box-shadow: 0 0 25px -5px rgba(239, 68, 68, 0.25);
+.dd-card:hover {
+  border-color: #353B55;
 }
 
-.glow-amber {
-  box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.25);
+.dd-card-header {
+  background: #1A1D2B;
+  border-bottom: 1px solid #262A3D;
+  padding: 10px 14px;
+  border-radius: 0px;
+}
+
+/* Datadog Tag badge style */
+.dd-tag {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 0px;
+  background: rgba(124, 58, 237, 0.15);
+  color: #C4B5FD;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }

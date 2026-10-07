@@ -1,10 +1,15 @@
 import json
+import uuid
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.core.database import get_db, DBIncident, DBEvidence, DBDiagnosis, DBAction, DBTimelineEvent, DBPostmortem
-from app.core.models import IncidentModel, EvidenceItem, DiagnosisOutput, RemediationProposal, TimelineEventModel, PostmortemModel
+from app.core.config import settings
+from app.core.database import get_db, DBIncident, DBEvidence, DBDiagnosis, DBAction, DBTimelineEvent, DBPostmortem, DBAuditEvent
+from app.core.models import IncidentModel, EvidenceItem, DiagnosisOutput, RemediationProposal, TimelineEventModel, PostmortemModel, IncidentStatus, ApprovalStatus
+from app.core.event_bus import event_bus
 from app.engine.sandbox_cloud import cloud_sandbox
+from app.engine.aws_telemetry import aws_telemetry_service
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
 
@@ -161,10 +166,31 @@ def get_incident(incident_id: str, db: Session = Depends(get_db)):
     return format_incident_detail(inc)
 
 @router.get("/telemetry/live")
-def get_live_telemetry():
-    """Returns real-time telemetry from all sandbox microservices."""
+async def get_live_telemetry(source: Optional[str] = Query(None)):
+    """Returns real-time telemetry from either AWS CloudWatch or the Cloud Sandbox."""
+    selected_source = (source or settings.TELEMETRY_SOURCE).lower()
+    if selected_source == "aws":
+        telemetry = await aws_telemetry_service.sample_live_telemetry()
+        services = aws_telemetry_service.get_services_topology()
+        return {
+            "mode": "aws",
+            "services": services,
+            "metrics": {s: [m.model_dump() for m in m_list] for s, m_list in telemetry.items()}
+        }
+    else:
+        telemetry = cloud_sandbox.sample_telemetry()
+        return {
+            "mode": "simulator",
+            "services": cloud_sandbox.services,
+            "metrics": {s: [m.model_dump() for m in m_list] for s, m_list in telemetry.items()}
+        }
+
+@router.get("/telemetry/sandbox")
+def get_sandbox_telemetry():
+    """Returns synthetic microservices topology and metrics from the offline Cloud Sandbox."""
     telemetry = cloud_sandbox.sample_telemetry()
     return {
+        "mode": "simulator",
         "services": cloud_sandbox.services,
         "metrics": {s: [m.model_dump() for m in m_list] for s, m_list in telemetry.items()}
     }
@@ -178,7 +204,7 @@ def get_agent_status():
                 "name": "Detector",
                 "role": "Anomaly Detection & Alerting",
                 "status": "ONLINE",
-                "description": "Monitors multi-source metric thresholds and log patterns."
+                "description": "Monitors AWS CloudWatch / microservice metrics and log streams."
             },
             {
                 "name": "Analyst",
@@ -190,7 +216,7 @@ def get_agent_status():
                 "name": "Responder",
                 "role": "Action Planning & Execution",
                 "status": "ONLINE",
-                "description": "Evaluates risk policies, requests approval, and orchestrates runbooks."
+                "description": "Evaluates risk policies, requests approval, and orchestrates AWS SSM runbooks."
             },
             {
                 "name": "Reporter",
@@ -200,3 +226,107 @@ def get_agent_status():
             }
         ]
     }
+
+@router.post("/stop-all")
+async def stop_all_active_pipelines(db: Session = Depends(get_db)):
+    """
+    Stops and cancels all currently active incident solving pipelines,
+    canceling pending approval actions and notifying connected clients.
+    """
+    active_incidents = db.query(DBIncident).filter(
+        DBIncident.status.notin_([
+            IncidentStatus.RESOLVED.value,
+            IncidentStatus.DOCUMENTED.value,
+            IncidentStatus.CLOSED.value,
+            IncidentStatus.CANCELLED.value
+        ])
+    ).all()
+
+    now = datetime.now(timezone.utc)
+    for inc in active_incidents:
+        prev_status = inc.status
+        inc.status = IncidentStatus.CANCELLED.value
+        inc.resolved_at = now
+
+        stop_evt = DBTimelineEvent(
+            id=str(uuid.uuid4()),
+            incident_id=inc.id,
+            actor="Human Operator",
+            event="Pipeline execution manually stopped and cancelled by operator.",
+            state_before=prev_status,
+            state_after=IncidentStatus.CANCELLED.value,
+            timestamp=now
+        )
+        db.add(stop_evt)
+
+        for act in inc.actions:
+            if act.approval_status == ApprovalStatus.PENDING.value:
+                act.approval_status = ApprovalStatus.REJECTED.value
+                act.rejection_reason = "Pipeline stopped by operator."
+
+    db.commit()
+    await event_bus.publish("incident_cancelled", {"message": "All active pipelines stopped by operator."})
+    return {
+        "success": True,
+        "stopped_count": len(active_incidents),
+        "message": f"Stopped {len(active_incidents)} active incident solving pipelines."
+    }
+
+@router.post("/{incident_id}/stop")
+async def stop_incident_pipeline(incident_id: str, db: Session = Depends(get_db)):
+    """
+    Stops and cancels the solving pipeline for a specific incident.
+    """
+    inc = db.query(DBIncident).filter(DBIncident.id == incident_id).first()
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    now = datetime.now(timezone.utc)
+    prev_status = inc.status
+    inc.status = IncidentStatus.CANCELLED.value
+    inc.resolved_at = now
+
+    stop_evt = DBTimelineEvent(
+        id=str(uuid.uuid4()),
+        incident_id=inc.id,
+        actor="Human Operator",
+        event="Pipeline execution manually stopped and cancelled by operator.",
+        state_before=prev_status,
+        state_after=IncidentStatus.CANCELLED.value,
+        timestamp=now
+    )
+    db.add(stop_evt)
+
+    for act in inc.actions:
+        if act.approval_status == ApprovalStatus.PENDING.value:
+            act.approval_status = ApprovalStatus.REJECTED.value
+            act.rejection_reason = "Pipeline stopped by operator."
+
+    db.commit()
+    await event_bus.publish("incident_cancelled", {"incident_id": incident_id, "message": f"Pipeline for {incident_id} stopped."})
+    return {
+        "success": True,
+        "incident_id": incident_id,
+        "message": f"Pipeline for incident {incident_id} stopped and cancelled."
+    }
+
+@router.post("/clear-all")
+async def clear_all_incident_history(db: Session = Depends(get_db)):
+    """
+    Permanently clears all incident history, evidence, diagnoses, actions, timelines, and postmortems from the database.
+    """
+    db.query(DBPostmortem).delete()
+    db.query(DBTimelineEvent).delete()
+    db.query(DBAction).delete()
+    db.query(DBDiagnosis).delete()
+    db.query(DBEvidence).delete()
+    db.query(DBAuditEvent).delete()
+    db.query(DBIncident).delete()
+    db.commit()
+
+    await event_bus.publish("history_cleared", {"message": "All incident history cleared."})
+    return {
+        "success": True,
+        "message": "All incident records, actions, and history successfully cleared."
+    }
+

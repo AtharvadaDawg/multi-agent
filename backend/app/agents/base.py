@@ -14,12 +14,59 @@ class BaseAgent:
 
     async def call_llm(self, system_prompt: str, user_prompt: str, structured_schema_hint: Optional[str] = None) -> str:
         """
-        Executes LLM reasoning using Gemini, OpenAI, or high-fidelity deterministic fallback.
+        Executes LLM reasoning using OpenRouter, Gemini, OpenAI, or high-fidelity deterministic fallback.
         Ensures the agent system works seamlessly with or without API keys.
         """
         provider = settings.LLM_PROVIDER.lower()
         
-        # 1. Try Gemini if configured or auto
+        # 1. Try OpenRouter if configured or if key is an OpenRouter key
+        openrouter_key = settings.OPENROUTER_API_KEY or os.environ.get("OPENROUTER_API_KEY")
+        if not openrouter_key and (settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.startswith("sk-or-")):
+            openrouter_key = settings.OPENAI_API_KEY
+
+        if (provider in ["openrouter", "auto"]) and openrouter_key:
+            try:
+                from openai import AsyncOpenAI
+                client = AsyncOpenAI(
+                    api_key=openrouter_key,
+                    base_url=settings.OPENROUTER_BASE_URL
+                )
+                model_name = settings.MODEL_NAME if "/" in settings.MODEL_NAME else f"google/{settings.MODEL_NAME}"
+                
+                try:
+                    resp = await client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": f"{system_prompt}\nYou MUST return ONLY valid JSON conforming strictly to schema: {structured_schema_hint}"},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        response_format={"type": "json_object"}
+                    )
+                except Exception:
+                    # Retry without response_format if provider/model doesn't support json_object mode
+                    resp = await client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": f"{system_prompt}\nYou MUST return ONLY valid JSON conforming strictly to schema: {structured_schema_hint}"},
+                            {"role": "user", "content": user_prompt}
+                        ]
+                    )
+
+                if resp.choices and resp.choices[0].message.content:
+                    content = resp.choices[0].message.content.strip()
+                    # Strip markdown code fences if model enclosed in ```json ... ```
+                    if content.startswith("```"):
+                        lines = content.splitlines()
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines and lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        content = "\n".join(lines).strip()
+                    return content
+            except Exception as e:
+                logger.warning(f"OpenRouter Gemma invocation failed, falling back: {e}")
+
+        # 2. Try Gemini if configured
         if (provider in ["gemini", "auto"]) and (settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")):
             api_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
             try:
@@ -34,7 +81,7 @@ class BaseAgent:
             except Exception as e:
                 logger.warning(f"Gemini API invocation failed, falling back: {e}")
 
-        # 2. Try OpenAI if configured
+        # 3. Try standard OpenAI if configured
         if (provider in ["openai", "auto"]) and (settings.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")):
             api_key = settings.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
             try:
@@ -52,7 +99,7 @@ class BaseAgent:
             except Exception as e:
                 logger.warning(f"OpenAI API invocation failed, falling back: {e}")
 
-        # 3. Fallback: High-precision reasoning engine
+        # 4. Fallback: High-precision reasoning engine
         return self._mock_reasoning(user_prompt)
 
     def _mock_reasoning(self, user_prompt: str) -> str:

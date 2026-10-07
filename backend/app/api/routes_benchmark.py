@@ -76,7 +76,7 @@ async def run_evaluation_suite(scenario_id: str = "cpu_saturation", db: Session 
 
     # 3. Store benchmark results
     import uuid
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     run_multi = DBBenchmarkRun(
         id=str(uuid.uuid4()),
@@ -87,7 +87,7 @@ async def run_evaluation_suite(scenario_id: str = "cpu_saturation", db: Session 
         remediation_quality_score=0.95,
         token_usage=multi_tokens,
         safety_violations=0,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         details_json=json.dumps({"has_approval_gate": True, "kb_hits": len(kb_matches)})
     )
     db.add(run_multi)
@@ -101,7 +101,7 @@ async def run_evaluation_suite(scenario_id: str = "cpu_saturation", db: Session 
         remediation_quality_score=0.70,
         token_usage=single_res["token_usage"],
         safety_violations=1 if scenario.requires_human_approval else 0, # Single agent lacks gate
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         details_json=json.dumps(single_res)
     )
     db.add(run_single)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Search, X, Layers, Lightbulb, Sparkles } from 'lucide-react';
+import { BookOpen, Search, X, Lightbulb } from 'lucide-react';
 import * as api from '../services/api';
 import { KnowledgeItem } from '../types';
 
@@ -34,100 +34,106 @@ export const KnowledgeBaseSearch: React.FC<KnowledgeBaseSearchProps> = ({ onClos
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 font-sans">
+      <div className="bg-[#161823] border border-[#262A3D] max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
         
         {/* Header */}
-        <div className="p-5 border-b border-slate-800 bg-slate-950 flex items-center justify-between">
+        <div className="p-4 border-b border-[#262A3D] bg-[#1A1D2B] flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-              <BookOpen className="w-6 h-6" />
+            <div className="p-2 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+              <BookOpen className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-semibold inline-block">
-                INCIDENT MEMORY & POSTMORTEM RAG
+              <div className="text-[10px] font-mono px-1.5 py-0.5 bg-purple-500/20 text-purple-300 font-semibold inline-block">
+                SLEUTHOPS RAG NOTEBOOKS • INCIDENT MEMORY
               </div>
-              <h2 className="text-base font-bold text-slate-100 mt-1">
-                Historical Operational Knowledge Base
+              <h2 className="text-sm font-bold text-white mt-0.5 font-header">
+                Historical SRE Incident Knowledge Base & Vector Store
               </h2>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition"
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-[#222638] transition"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Search Bar */}
-        <div className="p-4 border-b border-slate-800 bg-slate-950/60">
+        <div className="p-4 border-b border-[#262A3D] bg-[#141622]">
           <form onSubmit={handleSearch} className="flex gap-2">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="text"
+                placeholder="Query historical postmortems, root causes, or runbook lessons... (e.g. 'cpu spike', 'db pool')"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search past root causes, runbooks, keywords (e.g. connection pool, cpu saturation, canary rollback)..."
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono"
+                className="w-full bg-[#11131C] border border-[#262A3D] focus:border-purple-500 pl-9 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 outline-none font-sans"
               />
             </div>
             <button
               type="submit"
               disabled={isSearching}
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg shadow transition"
+              className="px-4 py-2 bg-[#7C3AED] hover:bg-purple-600 text-white font-semibold text-xs transition disabled:opacity-50"
             >
-              {isSearching ? 'Searching...' : 'Search'}
+              {isSearching ? 'Searching...' : 'Vector Search'}
             </button>
           </form>
         </div>
 
-        {/* Knowledge Records List */}
-        <div className="p-6 overflow-y-auto space-y-4">
+        {/* Results List */}
+        <div className="p-4 space-y-3 overflow-y-auto max-h-[calc(75vh-150px)]">
           {items.length === 0 ? (
-            <div className="text-center py-10 text-xs text-slate-500">
-              No matching historical incidents found.
+            <div className="text-center py-10 text-slate-500 text-xs font-mono">
+              No historical incident knowledge records found.
             </div>
           ) : (
             items.map(item => (
               <div
                 key={item.id}
-                className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-slate-700 transition space-y-2"
+                className="p-4 bg-[#11131C] border border-[#262A3D] hover:border-[#383E58] transition space-y-2 text-xs"
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                      {item.incident_id}
+                  <div className="flex items-center space-x-2">
+                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 bg-[#161823] text-purple-300 border border-purple-500/30">
+                      {item.service}
                     </span>
-                    <span className="text-xs font-mono text-slate-400">
-                      Service: <span className="text-slate-200">{item.service}</span>
-                    </span>
+                    <span className="text-xs font-semibold text-slate-200 font-header">{item.root_cause}</span>
                   </div>
-
                   {item.similarity_score !== undefined && (
-                    <span className="text-[11px] font-mono text-emerald-400 font-bold">
-                      Match: {Math.round(item.similarity_score * 100)}%
+                    <span className="text-[10px] font-mono px-2 py-0.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                      Score: {Math.round(item.similarity_score * 100)}%
                     </span>
                   )}
                 </div>
 
-                <div className="text-xs text-slate-200 font-medium">
-                  <span className="text-purple-400 font-semibold">Root Cause:</span> {item.root_cause}
+                <div className="text-slate-300 text-[11px] leading-relaxed">
+                  <span className="text-slate-500 font-mono">Remediation:</span> {item.remediation}
                 </div>
 
-                <div className="text-xs text-slate-300">
-                  <span className="text-emerald-400 font-semibold">Proven Remediation:</span> {item.remediation}
-                </div>
+                {item.lessons && (
+                  <div className="p-2 bg-[#161823] border border-[#262A3D] text-[11px] text-amber-300/90 flex items-start gap-1.5 font-sans">
+                    <Lightbulb className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>{item.lessons}</span>
+                  </div>
+                )}
 
-                <div className="text-xs text-slate-400 flex items-start gap-1.5 pt-1 border-t border-slate-900">
-                  <Lightbulb className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
-                  <span>{item.lessons}</span>
+                <div className="text-[10px] font-mono text-slate-500 flex items-center justify-between pt-1">
+                  <span>Incident ID: {item.incident_id}</span>
+                  <span>Tags: {item.keywords}</span>
                 </div>
               </div>
             ))
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-3 bg-[#141622] border-t border-[#262A3D] flex items-center justify-between text-[10px] font-mono text-slate-500">
+          <span>Vector Index: SRE Knowledge Embeddings</span>
+          <span>{items.length} records available</span>
         </div>
 
       </div>

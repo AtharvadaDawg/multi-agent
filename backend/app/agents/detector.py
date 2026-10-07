@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from app.agents.base import BaseAgent
 from app.core.models import AgentName, IncidentStatus, SeverityLevel, TelemetryMetric, LogEntry
@@ -38,7 +38,7 @@ class DetectorAgent(BaseAgent):
         if any(m.anomaly_score >= 0.95 for m in anomaly_metrics):
             severity = SeverityLevel.CRITICAL
 
-        incident_id = f"INC-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+        incident_id = f"INC-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
         title = f"Degradation detected in {service}: {trigger_reason}"
 
         logger.info(f"[Detector] Triggered incident {incident_id} ({severity.value}) for service {service}")
@@ -51,7 +51,7 @@ class DetectorAgent(BaseAgent):
                 service=service,
                 severity=severity.value,
                 status=IncidentStatus.DETECTED.value,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
                 initial_trigger=trigger_reason
             )
             db.add(db_incident)

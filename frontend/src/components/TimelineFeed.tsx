@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, CheckCircle2, User, Bot, Wrench, Shield, FileText } from 'lucide-react';
+import { Clock, User, Wrench, Shield, FileText, Sparkles } from 'lucide-react';
 import { TimelineEvent } from '../types';
 
 interface TimelineFeedProps {
@@ -9,32 +9,51 @@ interface TimelineFeedProps {
 export const TimelineFeed: React.FC<TimelineFeedProps> = ({ timeline }) => {
   if (!timeline || timeline.length === 0) {
     return (
-      <div className="text-center py-8 text-xs text-slate-500">
-        No timeline events recorded yet.
+      <div className="text-center py-8 text-xs text-slate-500 font-mono">
+        No SleuthOps timeline events recorded for this incident.
       </div>
     );
   }
 
-  const getActorIcon = (actor: string) => {
+  const getActorMeta = (actor: string) => {
     switch (actor.toLowerCase()) {
       case 'detector':
-        return <Shield className="w-3.5 h-3.5 text-indigo-400" />;
+        return {
+          icon: <Shield className="w-3.5 h-3.5 text-purple-700" />,
+          color: 'bg-purple-100 border-purple-300'
+        };
       case 'analyst':
-        return <Bot className="w-3.5 h-3.5 text-purple-400" />;
+        return {
+          icon: <Sparkles className="w-3.5 h-3.5 text-indigo-700" />,
+          color: 'bg-indigo-100 border-indigo-300'
+        };
       case 'responder':
-        return <Wrench className="w-3.5 h-3.5 text-amber-400" />;
+        return {
+          icon: <Wrench className="w-3.5 h-3.5 text-amber-800" />,
+          color: 'bg-amber-100 border-amber-300'
+        };
       case 'reporter':
-        return <FileText className="w-3.5 h-3.5 text-cyan-400" />;
+        return {
+          icon: <FileText className="w-3.5 h-3.5 text-cyan-800" />,
+          color: 'bg-cyan-100 border-cyan-300'
+        };
       case 'human operator':
-        return <User className="w-3.5 h-3.5 text-emerald-400" />;
+      case 'devops sre lead':
+        return {
+          icon: <User className="w-3.5 h-3.5 text-[#0E7A4C]" />,
+          color: 'bg-emerald-100 border-emerald-300'
+        };
       default:
-        return <Clock className="w-3.5 h-3.5 text-slate-400" />;
+        return {
+          icon: <Clock className="w-3.5 h-3.5 text-slate-600" />,
+          color: 'bg-slate-100 border-slate-300'
+        };
     }
   };
 
   return (
-    <div className="flow-root">
-      <ul className="-mb-8">
+    <div className="flow-root font-sans">
+      <ul className="-mb-6">
         {timeline.map((event, idx) => {
           const isLast = idx === timeline.length - 1;
           const timeFormatted = new Date(event.timestamp).toLocaleTimeString([], {
@@ -42,31 +61,37 @@ export const TimelineFeed: React.FC<TimelineFeedProps> = ({ timeline }) => {
             minute: '2-digit',
             second: '2-digit'
           });
+          const meta = getActorMeta(event.actor);
 
           return (
             <li key={event.id || idx}>
-              <div className="relative pb-6">
+              <div className="relative pb-5">
                 {!isLast && (
                   <span
-                    className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-800"
+                    className="absolute top-3 left-3.5 -ml-px h-full w-0.5 bg-[#E2E8F0]"
                     aria-hidden="true"
                   />
                 )}
                 <div className="relative flex space-x-3 items-start">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 border border-slate-700 ring-4 ring-[#0B0F19]">
-                    {getActorIcon(event.actor)}
+                  {/* Actor Badge Avatar */}
+                  <div className={`flex h-7 w-7 items-center justify-center border ${meta.color} flex-shrink-0 bg-white shadow-xs`}>
+                    {meta.icon}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-200">{event.actor}</span>
-                      <span className="font-mono text-[11px] text-slate-500">{timeFormatted}</span>
+
+                  <div className="flex-1 min-w-0 bg-[#F8F9FA] border border-[#E2E8F0] p-2.5">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-bold text-slate-800 font-mono flex items-center gap-1.5">
+                        <span className="text-purple-700">@</span>{event.actor}
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-500">{timeFormatted}</span>
                     </div>
-                    <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">{event.event}</p>
+
+                    <p className="text-xs text-slate-700 leading-relaxed font-sans">{event.event}</p>
                     
                     {event.state_after && (
-                      <div className="mt-1.5 inline-flex items-center space-x-1.5 text-[10px] font-mono px-2 py-0.5 rounded bg-slate-950/80 border border-slate-800 text-slate-400">
-                        <span>State:</span>
-                        <span className="text-indigo-400 font-semibold">{event.state_after}</span>
+                      <div className="mt-2 inline-flex items-center space-x-1 text-[10px] font-mono px-2 py-0.5 bg-white border border-[#E2E8F0] text-slate-600">
+                        <span className="text-slate-400">status:</span>
+                        <span className="text-purple-700 font-semibold">{event.state_after}</span>
                       </div>
                     )}
                   </div>

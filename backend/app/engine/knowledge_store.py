@@ -1,7 +1,7 @@
 import logging
 import uuid
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.database import SessionLocal, DBKnowledgeItem, Base, engine
 
 logger = logging.getLogger("KnowledgeStore")
@@ -59,7 +59,7 @@ class IncidentKnowledgeStore:
                             remediation=seed["remediation"],
                             lessons=seed["lessons"],
                             keywords=seed["keywords"],
-                            created_at=datetime.utcnow()
+                            created_at=datetime.now(timezone.utc)
                         )
                         db.add(item)
                     db.commit()
@@ -89,7 +89,7 @@ class IncidentKnowledgeStore:
                     remediation=remediation,
                     lessons=lessons,
                     keywords=keywords,
-                    created_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc)
                 )
                 db.add(item)
                 db.commit()

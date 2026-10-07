@@ -14,9 +14,29 @@ export async function fetchIncident(id: string): Promise<Incident> {
   return res.json();
 }
 
-export async function fetchLiveTelemetry(): Promise<{ services: Record<string, ServiceState>; metrics: Record<string, TelemetryMetric[]> }> {
-  const res = await fetch(`${API_BASE}/incidents/telemetry/live`);
+export async function stopIncidentPipeline(incidentId?: string): Promise<any> {
+  const url = incidentId ? `${API_BASE}/incidents/${incidentId}/stop` : `${API_BASE}/incidents/stop-all`;
+  const res = await fetch(url, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to stop incident pipeline');
+  return res.json();
+}
+
+export async function clearAllIncidents(): Promise<any> {
+  const res = await fetch(`${API_BASE}/incidents/clear-all`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to clear incident history');
+  return res.json();
+}
+
+export async function fetchLiveTelemetry(source?: string): Promise<{ mode?: string; services: Record<string, ServiceState>; metrics: Record<string, TelemetryMetric[]> }> {
+  const url = source ? `${API_BASE}/incidents/telemetry/live?source=${encodeURIComponent(source)}` : `${API_BASE}/incidents/telemetry/live`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch live telemetry');
+  return res.json();
+}
+
+export async function fetchSandboxTelemetry(): Promise<{ mode?: string; services: Record<string, ServiceState>; metrics: Record<string, TelemetryMetric[]> }> {
+  const res = await fetch(`${API_BASE}/incidents/telemetry/sandbox`);
+  if (!res.ok) throw new Error('Failed to fetch sandbox telemetry');
   return res.json();
 }
 
@@ -53,8 +73,9 @@ export async function fetchScenarios(): Promise<Scenario[]> {
   return res.json();
 }
 
-export async function triggerScenario(scenarioId: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/scenarios/${scenarioId}/trigger`, {
+export async function triggerScenario(scenarioId: string, mode?: string): Promise<any> {
+  const url = mode ? `${API_BASE}/scenarios/${scenarioId}/trigger?mode=${encodeURIComponent(mode)}` : `${API_BASE}/scenarios/${scenarioId}/trigger`;
+  const res = await fetch(url, {
     method: 'POST'
   });
   if (!res.ok) throw new Error(`Failed to trigger scenario ${scenarioId}`);
@@ -95,3 +116,26 @@ export async function searchKnowledge(query: string, service?: string): Promise<
   if (!res.ok) throw new Error('Failed to search knowledge base');
   return res.json();
 }
+
+export async function fetchAWSStatus(): Promise<{
+  aws_connected: boolean;
+  region: string;
+  configured_instance_id: string;
+  instance_metadata: any;
+  latest_cloudwatch_cpu: number;
+  cpu_threshold: number;
+  telemetry_source: string;
+}> {
+  const res = await fetch(`${API_BASE}/scenarios/aws/status`);
+  if (!res.ok) throw new Error('Failed to fetch AWS status');
+  return res.json();
+}
+
+export async function triggerAWSCpuStress(durationSeconds = 180): Promise<any> {
+  const res = await fetch(`${API_BASE}/scenarios/aws/stress?duration_seconds=${durationSeconds}`, {
+    method: 'POST'
+  });
+  if (!res.ok) throw new Error('Failed to trigger AWS CPU stress');
+  return res.json();
+}
+

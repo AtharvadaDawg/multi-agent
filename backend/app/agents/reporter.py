@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from app.agents.base import BaseAgent
 from app.core.models import (
@@ -129,6 +129,7 @@ Chronological Timeline:
         # 4. Persist Postmortem to DB
         postmortem_id = f"PM-{uuid.uuid4().hex[:6].upper()}"
         with SessionLocal() as db:
+            db.query(DBPostmortem).filter(DBPostmortem.incident_id == incident_id).delete()
             db_pm = DBPostmortem(
                 id=postmortem_id,
                 incident_id=incident_id,
@@ -139,7 +140,7 @@ Chronological Timeline:
                 remediation_summary=remediation_summary,
                 action_items_json=json.dumps(action_items),
                 lessons_learned_json=json.dumps(lessons_learned),
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             db.add(db_pm)
 

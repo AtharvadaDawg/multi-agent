@@ -1,7 +1,7 @@
 import asyncio
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from app.core.models import TelemetryMetric, LogEntry
 
@@ -130,7 +130,7 @@ class CloudSandbox:
 
     def sample_telemetry(self) -> Dict[str, List[TelemetryMetric]]:
         """Generates real-time metrics for all simulated services."""
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         metrics_by_service = {}
 
         for name, data in self.services.items():
@@ -223,7 +223,7 @@ class CloudSandbox:
         if not svc:
             return []
         
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         anomaly = svc["active_anomaly"]
         logs = []
 

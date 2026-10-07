@@ -7,6 +7,12 @@ logger = logging.getLogger("ApprovalPolicy")
 # Action risk matrix definition
 ACTION_RISK_MATRIX: Dict[str, Tuple[RiskLevel, bool]] = {
     # action_type: (RiskLevel, requires_human_approval)
+    # AWS Remediation Actions
+    "restart_application_service": (RiskLevel.LOW, False),
+    "stop_runaway_process": (RiskLevel.LOW, False),
+    "reboot_ec2_instance": (RiskLevel.HIGH, True),
+    
+    # Generic / Sandbox Actions
     "scale_replicas": (RiskLevel.LOW, False),
     "clear_non_critical_cache": (RiskLevel.LOW, False),
     "enable_query_cache": (RiskLevel.LOW, False),

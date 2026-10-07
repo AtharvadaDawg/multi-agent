@@ -8,6 +8,7 @@ export type IncidentStatus =
   | 'RESOLVED'
   | 'DOCUMENTED'
   | 'CLOSED'
+  | 'CANCELLED'
   | 'FAILED_ESCALATED';
 
 export type SeverityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';

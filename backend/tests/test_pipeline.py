@@ -10,9 +10,15 @@ from app.agents.analyst import analyst_agent
 from app.agents.responder import responder_agent
 from app.agents.reporter import reporter_agent
 
+from app.core.event_bus import event_bus
+
 @pytest.fixture(autouse=True)
 def setup_database():
     init_db()
+    # Register agent event listeners for test environment
+    event_bus.subscribe("incident_detected", analyst_agent.handle_incident_detected)
+    event_bus.subscribe("diagnosis_ready", responder_agent.handle_diagnosis_ready)
+    event_bus.subscribe("incident_resolved", reporter_agent.handle_incident_resolved)
 
 def test_approval_policy():
     risk_low, human_low, _ = ApprovalPolicyEngine.evaluate("scale_replicas", {"target_count": 3})
@@ -66,3 +72,51 @@ async def test_end_to_end_agent_flow():
         inc = db.query(DBIncident).filter(DBIncident.id == incident_id).first()
         assert inc is not None
         assert inc.service == "order-service"
+
+@pytest.mark.asyncio
+async def test_end_to_end_remediation_and_postmortem():
+    # 1. Trigger anomaly
+    cloud_sandbox.inject_anomaly("order-service", "cpu_saturation", "HIGH")
+    metrics = cloud_sandbox.sample_telemetry().get("order-service", [])
+    logs = cloud_sandbox.generate_recent_logs("order-service", count=2)
+
+    incident_id = await detector_agent.evaluate_telemetry_and_trigger(
+        service="order-service",
+        metrics=metrics,
+        logs=logs,
+        trigger_reason="Test CPU Spike"
+    )
+
+    # Allow async analyst & responder agents to process
+    await asyncio.sleep(1.0)
+
+    with SessionLocal() as db:
+        inc = db.query(DBIncident).filter(DBIncident.id == incident_id).first()
+        assert inc is not None
+        assert inc.diagnosis is not None
+        assert len(inc.actions) > 0
+
+        # If action required human approval, approve and execute
+        if inc.status == IncidentStatus.AWAITING_APPROVAL.value:
+            act = inc.actions[0]
+            params = {}
+            if act.parameters_json:
+                import json
+                params = json.loads(act.parameters_json)
+            # Execute remediation
+            await responder_agent.execute_remediation(
+                incident_id=inc.id,
+                action_id=act.id,
+                service=inc.service,
+                action_type=act.action_type,
+                parameters=params
+            )
+
+    # Allow resolution and postmortem generation
+    await asyncio.sleep(2.0)
+
+    with SessionLocal() as db:
+        inc = db.query(DBIncident).filter(DBIncident.id == incident_id).first()
+        assert inc is not None
+        assert inc.status in [IncidentStatus.RESOLVED.value, IncidentStatus.DOCUMENTED.value]
+        assert inc.postmortem is not None or inc.status == IncidentStatus.DOCUMENTED.value

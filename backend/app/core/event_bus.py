@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Any, Awaitable
 from app.core.models import AgentEventMessage, TimelineEventModel, AgentName, IncidentStatus
 from app.core.database import SessionLocal, DBAgentEvent, DBTimelineEvent
@@ -51,7 +51,7 @@ class AsyncEventBus:
             incident_id=incident_id,
             event_type=event_type,
             producer=producer,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             correlation_id=correlation_id,
             payload=payload
         )
@@ -64,7 +64,7 @@ class AsyncEventBus:
                     incident_id=incident_id,
                     event_type=event_type,
                     producer=producer.value if hasattr(producer, 'value') else str(producer),
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     correlation_id=correlation_id,
                     schema_version=event_msg.schema_version,
                     payload_json=json.dumps(payload)
@@ -109,7 +109,7 @@ class AsyncEventBus:
             details = {}
             
         timeline_id = str(uuid.uuid4())
-        timestamp_str = datetime.utcnow().isoformat()
+        timestamp_str = datetime.now(timezone.utc).isoformat()
         
         # Persist to DB
         try:
@@ -121,7 +121,7 @@ class AsyncEventBus:
                     event=event,
                     state_before=state_before.value if state_before else None,
                     state_after=state_after.value if state_after else None,
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     details_json=json.dumps(details)
                 )
                 db.add(db_timeline)

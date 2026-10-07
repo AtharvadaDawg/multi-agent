@@ -13,9 +13,11 @@ interface IncidentContextType {
   setActiveApprovalAction: (act: RemediationProposal | null) => void;
   isWsConnected: boolean;
   isLoading: boolean;
-  triggerScenario: (id: string) => Promise<void>;
+  triggerScenario: (id: string, mode?: 'aws' | 'simulator') => Promise<void>;
   submitApproval: (actionId: string, decision: 'APPROVE' | 'REJECT', notes?: string) => Promise<void>;
   resetSandbox: () => Promise<void>;
+  stopPipeline: (incidentId?: string) => Promise<void>;
+  clearIncidentHistory: () => Promise<void>;
   refreshAll: () => Promise<void>;
 }
 
@@ -110,10 +112,10 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   }, [refreshAll]);
 
-  const triggerScenario = async (id: string) => {
+  const triggerScenario = async (id: string, mode?: 'aws' | 'simulator') => {
     setIsLoading(true);
     try {
-      const res = await api.triggerScenario(id);
+      const res = await api.triggerScenario(id, mode);
       if (res.incident_id) {
         setSelectedIncidentIdState(res.incident_id);
       }
@@ -144,6 +146,27 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const stopPipeline = async (incidentId?: string) => {
+    try {
+      await api.stopIncidentPipeline(incidentId);
+      setActiveApprovalAction(null);
+      await refreshAll();
+    } catch (e) {
+      console.error('Error stopping pipeline:', e);
+    }
+  };
+
+  const clearIncidentHistory = async () => {
+    try {
+      await api.clearAllIncidents();
+      setSelectedIncidentIdState(null);
+      setActiveApprovalAction(null);
+      await refreshAll();
+    } catch (e) {
+      console.error('Error clearing incident history:', e);
+    }
+  };
+
   const selectedIncident = incidents.find(i => i.id === selectedIncidentId) || (incidents.length > 0 ? incidents[0] : null);
 
   return (
@@ -162,6 +185,8 @@ export const IncidentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         triggerScenario,
         submitApproval,
         resetSandbox,
+        stopPipeline,
+        clearIncidentHistory,
         refreshAll
       }}
     >

@@ -1,8 +1,9 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
+from app.core.config import settings
 from app.agents.base import BaseAgent
 from app.core.models import (
     AgentName, IncidentStatus, RiskLevel, ApprovalStatus, AgentEventMessage, RemediationProposal
@@ -11,20 +12,26 @@ from app.core.database import SessionLocal, DBIncident, DBAction
 from app.core.event_bus import event_bus
 from app.engine.approval_policy import ApprovalPolicyEngine
 from app.engine.runbook_executor import runbook_executor
+from app.engine.aws_remediation import ALLOWED_AWS_ACTIONS
 
 logger = logging.getLogger("ResponderAgent")
 
 SYSTEM_RESPONDER_PROMPT = """You are an expert DevOps Remediation & SRE Responder Agent.
-Given an incident diagnosis and root cause, synthesize the optimal, safest candidate remediation action.
-Identify the action_type (scale_replicas, rollback_deployment, resize_db_pool, enable_circuit_breaker, restart_service),
-rationale, parameter overrides, and explicit rollback plan.
+Given an incident diagnosis and root cause, synthesize the optimal, safest candidate remediation action from approved runbooks.
+
+Approved Action Types:
+- AWS Infrastructure Mode: "restart_application_service" | "stop_runaway_process" | "reboot_ec2_instance"
+- Sandbox/Container Mode: "scale_replicas" | "rollback_deployment" | "resize_db_pool" | "enable_circuit_breaker" | "restart_service"
+
+Security Rule:
+The LLM must NEVER generate arbitrary shell commands or arbitrary AWS API calls. Only choose an action_type from the approved list.
 
 Return JSON in the format:
 {
-  "action_type": "rollback_deployment | scale_replicas | resize_db_pool | enable_circuit_breaker | restart_service",
+  "action_type": "<approved action type>",
   "title": "<Concise action title>",
   "description": "<Detailed description of what the action does>",
-  "target_resource": "<resource name>",
+  "target_resource": "<resource name or EC2 instance>",
   "rationale": "<Why this action cures the specific root cause>",
   "rollback_plan": "<Exact step to undo if action fails>",
   "parameters": {}
@@ -35,7 +42,7 @@ class ResponderAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             name=AgentName.RESPONDER,
-            role_description="Synthesizes ranked remediation actions, enforces human-in-the-loop approval policies, and coordinates safe execution."
+            role_description="Synthesizes ranked remediation actions from vetted runbooks, enforces approval policies, and coordinates safe execution."
         )
 
     async def handle_diagnosis_ready(self, event: AgentEventMessage):
@@ -44,18 +51,21 @@ class ResponderAgent(BaseAgent):
         payload = event.payload
         service = payload.get("service", "unknown-service")
         root_cause = payload.get("root_cause", "")
+        is_aws_mode = (service == "aws-ec2-workload") or service.startswith("aws-") or ("ec2" in service.lower())
         
-        logger.info(f"[Responder] Formulating remediation plan for incident {incident_id} on {service}...")
+        logger.info(f"[Responder] Formulating remediation plan for incident {incident_id} on {service} (Target: {'AWS' if is_aws_mode else 'Sandbox'})...")
 
         # 1. Ask LLM / Reasoning Engine for optimal remediation plan
         user_prompt = f"""
 Incident ID: {incident_id}
-Service: {service}
+Target Service/Host: {service}
+Mode: {'AWS EC2 CloudWatch' if is_aws_mode else 'Sandbox Microservices'}
+Target EC2 Instance: {settings.AWS_EC2_INSTANCE_ID if is_aws_mode else 'N/A'}
 Diagnosed Root Cause: {root_cause}
 Blast Radius: {payload.get('blast_radius', [])}
 Reasoning: {payload.get('reasoning', '')}
 """
-        schema_hint = '{"action_type": "rollback_deployment", "title": "string", "description": "string", "target_resource": "string", "rationale": "string", "rollback_plan": "string", "parameters": {}}'
+        schema_hint = '{"action_type": "restart_application_service", "title": "string", "description": "string", "target_resource": "string", "rationale": "string", "rollback_plan": "string", "parameters": {}}'
         llm_resp = await self.call_llm(SYSTEM_RESPONDER_PROMPT, user_prompt, structured_schema_hint=schema_hint)
 
         # 2. Parse candidate action
@@ -70,63 +80,86 @@ Reasoning: {payload.get('reasoning', '')}
             clean_json = clean_json.strip()
             
             parsed = json.loads(clean_json)
-            action_type = parsed.get("action_type", "restart_service")
+            action_type = parsed.get("action_type", "restart_application_service" if is_aws_mode else "restart_service")
             title = parsed.get("title", f"Remediate {service}")
             description = parsed.get("description", "Apply corrective infrastructure command.")
-            target_resource = parsed.get("target_resource", service)
+            target_resource = parsed.get("target_resource", settings.AWS_EC2_INSTANCE_ID if is_aws_mode else service)
             rationale = parsed.get("rationale", "Mitigate diagnosed root cause.")
-            rollback_plan = parsed.get("rollback_plan", "Revert configuration to previous snapshot.")
+            rollback_plan = parsed.get("rollback_plan", "Revert configuration to previous state.")
             parameters = parsed.get("parameters", {})
         except Exception as e:
             logger.warning(f"Error parsing remediation JSON: {e}. Applying deterministic fallback.")
-            # Fallback based on root cause keywords
-            rc_lower = root_cause.lower()
-            if "cpu" in rc_lower or "saturation" in rc_lower:
-                action_type = "scale_replicas"
-                title = f"Scale out {service} replicas"
-                description = "Increase replica count from 3 to 5 to distribute compute load."
-                target_resource = service
-                rationale = "Relieves thread pool pressure and CPU saturation."
-                rollback_plan = "Scale down to initial replica count 3."
-                parameters = {"target_count": 5}
-            elif "pool" in rc_lower or "connection" in rc_lower or "db" in rc_lower:
-                action_type = "resize_db_pool"
-                title = "Resize database connection pool"
-                description = "Expand database pool limit from 20 to 80 connections."
-                target_resource = service
-                rationale = "Allows queued queries to acquire connection slots without timing out."
-                rollback_plan = "Restore pool size to 20."
-                parameters = {"new_pool_size": 80}
-            elif "deployment" in rc_lower or "canary" in rc_lower or "500" in rc_lower or "exception" in rc_lower:
-                action_type = "rollback_deployment"
-                title = f"Rollback {service} to previous stable version"
-                description = "Revert active container deployment to previous stable revision v1.4.1."
-                target_resource = service
-                rationale = "Restores working application binary and eliminates runtime exceptions."
-                rollback_plan = "Re-deploy failed revision after hotfix."
-                parameters = {"target_version": "v1.4.1"}
-            elif "dependency" in rc_lower or "gateway" in rc_lower:
-                action_type = "enable_circuit_breaker"
-                title = f"Enable circuit breaker for external dependency"
-                description = "Open circuit breaker on upstream gateway and route calls to async fallback queue."
-                target_resource = service
-                rationale = "Prevents thread exhaustion while upstream partner recovers."
-                rollback_plan = "Close circuit breaker once upstream healthcheck passes."
-                parameters = {"fallback_mode": "async_dlq"}
-            else:
-                action_type = "restart_service"
-                title = f"Gracefully restart {service}"
-                description = "Perform rolling restart of worker pods."
-                target_resource = service
-                rationale = "Clears transient deadlock or memory leak."
-                rollback_plan = "Re-launch original instances."
-                parameters = {}
+            parsed = None
 
-        # 3. Evaluate Risk and Human Approval requirement
+        # 3. Deterministic Safety Enforcement / Fallback
+        rc_lower = root_cause.lower()
+        if is_aws_mode:
+            # Enforce strictly that action_type is in ALLOWED_AWS_ACTIONS
+            if not parsed or action_type not in ALLOWED_AWS_ACTIONS:
+                if "reboot" in rc_lower or "kernel" in rc_lower or "hang" in rc_lower:
+                    action_type = "reboot_ec2_instance"
+                    title = f"Reboot EC2 Instance ({settings.AWS_EC2_INSTANCE_ID})"
+                    description = "Perform clean reboot of target EC2 instance via AWS EC2 API."
+                    target_resource = settings.AWS_EC2_INSTANCE_ID or service
+                    rationale = "Clears persistent OS lock and restarts instance cleanly."
+                    rollback_plan = "Instance restarts with previous AMI state."
+                    parameters = {"instance_id": settings.AWS_EC2_INSTANCE_ID}
+                else:
+                    action_type = "restart_application_service"
+                    title = f"Restart Application Service on EC2 ({settings.AWS_EC2_INSTANCE_ID})"
+                    description = "Restarts the demo application and clears runaway CPU worker processes via AWS Systems Manager."
+                    target_resource = settings.AWS_EC2_INSTANCE_ID or service
+                    rationale = "Terminates CPU saturation worker and restores application service."
+                    rollback_plan = "Service restarts automatically upon worker termination."
+                    parameters = {"instance_id": settings.AWS_EC2_INSTANCE_ID}
+        else:
+            if not parsed:
+                if "cpu" in rc_lower or "saturation" in rc_lower:
+                    action_type = "scale_replicas"
+                    title = f"Scale out {service} replicas"
+                    description = "Increase replica count from 3 to 5 to distribute compute load."
+                    target_resource = service
+                    rationale = "Relieves thread pool pressure and CPU saturation."
+                    rollback_plan = "Scale down to initial replica count 3."
+                    parameters = {"target_count": 5}
+                elif "pool" in rc_lower or "connection" in rc_lower or "db" in rc_lower:
+                    action_type = "resize_db_pool"
+                    title = "Resize database connection pool"
+                    description = "Expand database pool limit from 20 to 80 connections."
+                    target_resource = service
+                    rationale = "Allows queued queries to acquire connection slots without timing out."
+                    rollback_plan = "Restore pool size to 20."
+                    parameters = {"new_pool_size": 80}
+                elif "deployment" in rc_lower or "canary" in rc_lower or "500" in rc_lower or "exception" in rc_lower:
+                    action_type = "rollback_deployment"
+                    title = f"Rollback {service} to previous stable version"
+                    description = "Revert active container deployment to previous stable revision v1.4.1."
+                    target_resource = service
+                    rationale = "Restores working application binary and eliminates runtime exceptions."
+                    rollback_plan = "Re-deploy failed revision after hotfix."
+                    parameters = {"target_version": "v1.4.1"}
+                elif "dependency" in rc_lower or "gateway" in rc_lower:
+                    action_type = "enable_circuit_breaker"
+                    title = f"Enable circuit breaker for external dependency"
+                    description = "Open circuit breaker on upstream gateway and route calls to async fallback queue."
+                    target_resource = service
+                    rationale = "Prevents thread exhaustion while upstream partner recovers."
+                    rollback_plan = "Close circuit breaker once upstream healthcheck passes."
+                    parameters = {"fallback_mode": "async_dlq"}
+                else:
+                    action_type = "restart_service"
+                    title = f"Gracefully restart {service}"
+                    description = "Perform rolling restart of worker pods."
+                    target_resource = service
+                    rationale = "Clears transient deadlock or memory leak."
+                    rollback_plan = "Re-launch original instances."
+                    parameters = {}
+
+        # 4. Evaluate Risk and Human Approval requirement via ApprovalPolicyEngine
         risk, requires_human, initial_approval = ApprovalPolicyEngine.evaluate(action_type, parameters)
         action_id = f"ACT-{uuid.uuid4().hex[:6].upper()}"
 
-        # 4. Persist Action to DB
+        # 5. Persist Action to DB
         with SessionLocal() as db:
             db_action = DBAction(
                 id=action_id,
@@ -141,7 +174,7 @@ Reasoning: {payload.get('reasoning', '')}
                 target_resource=target_resource,
                 parameters_json=json.dumps(parameters),
                 approval_status=initial_approval.value,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             db.add(db_action)
 
@@ -153,7 +186,7 @@ Reasoning: {payload.get('reasoning', '')}
                     inc.status = IncidentStatus.ACTION_PROPOSED.value
             db.commit()
 
-        # 5. Branch based on Human-in-the-Loop requirement
+        # 6. Branch based on Human-in-the-Loop requirement
         if requires_human:
             logger.info(f"[Responder] Action {action_id} classified as {risk.value} risk. Awaiting human operator approval...")
             await event_bus.record_timeline(
@@ -220,14 +253,14 @@ Reasoning: {payload.get('reasoning', '')}
             details={"action_id": action_id, "action_type": action_type}
         )
 
-        # Call Runbook Executor
+        # Call Runbook Executor (dispatches to AWS or Sandbox)
         exec_result = await runbook_executor.execute_action(
             service=service,
             action_type=action_type,
             parameters=parameters
         )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         with SessionLocal() as db:
             act = db.query(DBAction).filter(DBAction.id == action_id).first()
             if act:
@@ -239,7 +272,10 @@ Reasoning: {payload.get('reasoning', '')}
                     inc.status = IncidentStatus.RESOLVED.value
                     inc.resolved_at = now
                     if inc.started_at:
-                        inc.mttr_seconds = round((now - inc.started_at).total_seconds(), 2)
+                        started = inc.started_at
+                        if started.tzinfo is None:
+                            started = started.replace(tzinfo=timezone.utc)
+                        inc.mttr_seconds = round((now - started).total_seconds(), 2)
                 else:
                     inc.status = IncidentStatus.FAILED_ESCALATED.value
                 db.commit()
@@ -272,7 +308,7 @@ Reasoning: {payload.get('reasoning', '')}
             await event_bus.record_timeline(
                 incident_id=incident_id,
                 actor=self.name,
-                event=f"Remediation verification failed. Escalating to SRE on-call team.",
+                event=f"Remediation verification failed: {exec_result.get('verification_message')}. Escalating to SRE on-call.",
                 state_before=IncidentStatus.REMEDIATING,
                 state_after=IncidentStatus.FAILED_ESCALATED,
                 details=exec_result

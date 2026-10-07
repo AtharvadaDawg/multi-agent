@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from app.agents.base import BaseAgent
 from app.core.models import (
@@ -137,6 +137,7 @@ Similar Past Incidents from Knowledge Base:
 
         # 5. Persist Diagnosis to DB
         with SessionLocal() as db:
+            db.query(DBDiagnosis).filter(DBDiagnosis.incident_id == incident_id).delete()
             db_diag = DBDiagnosis(
                 id=str(uuid.uuid4()),
                 incident_id=incident_id,
@@ -146,7 +147,7 @@ Similar Past Incidents from Knowledge Base:
                 alternatives_json=json.dumps(alternatives),
                 evidence_refs_json=json.dumps([f"metric_{len(metrics)}", f"log_{len(logs)}"]),
                 reasoning=reasoning,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             db.add(db_diag)
 

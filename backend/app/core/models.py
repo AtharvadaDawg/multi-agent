@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,7 @@ class IncidentStatus(str, enum.Enum):
     RESOLVED = "RESOLVED"
     DOCUMENTED = "DOCUMENTED"
     CLOSED = "CLOSED"
+    CANCELLED = "CANCELLED"
     FAILED_ESCALATED = "FAILED_ESCALATED"
 
 class SeverityLevel(str, enum.Enum):
@@ -49,7 +50,7 @@ class TelemetryMetric(BaseModel):
     metric_name: str
     value: float
     unit: str = ""
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     source: str
     threshold: Optional[float] = None
     is_anomaly: bool = False
@@ -57,7 +58,7 @@ class TelemetryMetric(BaseModel):
 
 class LogEntry(BaseModel):
     log_id: str
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     service: str
     severity: str = "INFO"
     message: str
@@ -80,7 +81,7 @@ class DiagnosisOutput(BaseModel):
     alternatives: List[str] = []
     evidence_ids: List[str] = []
     reasoning: str
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class RemediationProposal(BaseModel):
     action_id: str
@@ -96,7 +97,7 @@ class RemediationProposal(BaseModel):
     parameters: Dict[str, Any] = {}
     approval_status: ApprovalStatus = ApprovalStatus.NOT_REQUIRED
     execution_result: Optional[Dict[str, Any]] = None
-    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class TimelineEventModel(BaseModel):
     id: str
@@ -105,7 +106,7 @@ class TimelineEventModel(BaseModel):
     event: str
     state_before: Optional[IncidentStatus] = None
     state_after: Optional[IncidentStatus] = None
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     details: Dict[str, Any] = {}
 
 class PostmortemModel(BaseModel):
@@ -119,7 +120,7 @@ class PostmortemModel(BaseModel):
     action_items: List[str]
     lessons_learned: List[str]
     timeline: List[TimelineEventModel] = []
-    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class IncidentModel(BaseModel):
     id: str
@@ -143,7 +144,7 @@ class AgentEventMessage(BaseModel):
     incident_id: str
     event_type: str # incident_detected, context_enriched, diagnosis_ready, action_proposed, action_executed, incident_resolved, postmortem_created
     producer: AgentName
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     correlation_id: str
     schema_version: str = "1.0"
     payload: Dict[str, Any]
@@ -153,7 +154,7 @@ class AuditEventModel(BaseModel):
     actor: str
     object: str
     action: str
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     decision: str
     evidence_ref: Optional[str] = None
     details: Dict[str, Any] = {}

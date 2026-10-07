@@ -14,6 +14,18 @@ class IncidentScenario(BaseModel):
     requires_human_approval: bool
 
 SCENARIOS: Dict[str, IncidentScenario] = {
+    "aws_ec2_cpu_saturation": IncidentScenario(
+        id="aws_ec2_cpu_saturation",
+        title="EC2 CPU Saturation & Thread Pool Contention",
+        target_service="aws-ec2-workload",
+        anomaly_type="cpu_saturation",
+        severity="HIGH",
+        description="Real EC2 instance experiencing runaway worker thread CPUUtilization spike > 80% detected via CloudWatch.",
+        expected_root_cause="High CPU utilization on EC2 instance caused by runaway worker thread pool contention.",
+        expected_remediation="restart_application_service",
+        risk_level="LOW",
+        requires_human_approval=False
+    ),
     "cpu_saturation": IncidentScenario(
         id="cpu_saturation",
         title="CPU Saturation & Thread Pool Starvation",
